@@ -1,4 +1,3 @@
-
 import GetPut::*;
 import Connectable::*;
 import ClientServer::*;
@@ -17,74 +16,107 @@ module mkTestPhy(Empty);
     mkConnection(dut1.phyTxClt, dut0.phyRxSrv);  // dut1发送 -> dut0接收
 
     Reg#(UInt#(64)) cycleCount <- mkReg(0);
+    Reg#(UInt#(12)) cntCount <- mkReg(0);
 
     rule updateclock;
-        cycleCount <= cycleCount + 1;
+        if(cycleCount == 60*100)
+            cycleCount <= 0;
+        else
+            cycleCount <= cycleCount + 1;
+    endrule
+
+    rule updatecnt if(cycleCount == 60*100);
+        cntCount <= cntCount + 1;
     endrule
 
     rule handshake0;
         let resp <- dut0.lowMacTxSrv.response.get;
     endrule
+    
+    // rule handshake1;
+    //     let resp <- dut0.phyRxSrv.response.get;
+    // endrule
 
-    //power过低不会被感应到
-    rule send1 if (cycleCount == 100);
+    rule send if (cycleCount == 1*100);
         let txReq = getEmptyMacEvent;
         txReq.srcMacId = 0;
         txReq.dstMacId = 1;
-        txReq.rfParam.power = -40*32;
+        txReq.rfParam.power = -160 + unpack(pack(cntCount));
         txReq.rfParam.mcs = 7;
         txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 1024;
+        txReq.mpduDigest.length = 1;
         dut0.lowMacTxSrv.request.put(txReq);
-        $display("packt1");
-    endrule
-
-    //该包被感应到使得phy状态改变
-    rule send2 if (cycleCount == 200);
-        let txReq = getEmptyMacEvent;
-        txReq.srcMacId = 0;
-        txReq.dstMacId = 1;
-        txReq.rfParam.power = 31*32;
-        txReq.rfParam.mcs = 7;
-        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 1024;
-        dut0.lowMacTxSrv.request.put(txReq);
-        $display("packt2");
-    endrule
-
-    //该包将被视为干扰，干扰SYNC状态
-    rule send3 if (cycleCount == 300);
-        let txReq = getEmptyMacEvent;
-        txReq.srcMacId = 0;
-        txReq.dstMacId = 1;
-        txReq.rfParam.power = 10*32;
-        txReq.rfParam.mcs = 7;
-        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 1024;
-        dut0.lowMacTxSrv.request.put(txReq);
-        $display("packt3");
-    endrule
-
-    //该包将被视为干扰，干扰RX状态
-    rule send4 if (cycleCount == 5000);
-        let txReq = getEmptyMacEvent;
-        txReq.srcMacId = 0;
-        txReq.dstMacId = 1;
-        txReq.rfParam.power = 10*32;
-        txReq.rfParam.mcs = 7;
-        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 1024;
-        dut0.lowMacTxSrv.request.put(txReq);
-        $display("packt4");
+        //$display("packt2%d",cntCount);
     endrule
 
     rule receive;
         let rxReq <- dut1.lowMacRxClt.request.get;
     endrule
 
-    rule simEnd(cycleCount == 100_0_000);//1ms
+    rule simEnd(cntCount == 1120);//1ms
         $display("Test Pass");
         $finish();
     endrule
+
+    // //power过低不会被感应到
+    // rule send1 if (cycleCount == 100);
+    //     let txReq = getEmptyMacEvent;
+    //     txReq.srcMacId = 0;
+    //     txReq.dstMacId = 1;
+    //     txReq.rfParam.power = -40*32;
+    //     txReq.rfParam.mcs = 7;
+    //     txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+    //     txReq.mpduDigest.length = 1024;
+    //     dut0.lowMacTxSrv.request.put(txReq);
+    //     $display("packt1");
+    // endrule
+
+    // //该包被感应到使得phy状态改变
+    // rule send2 if (cycleCount == 200);
+    //     let txReq = getEmptyMacEvent;
+    //     txReq.srcMacId = 0;
+    //     txReq.dstMacId = 1;
+    //     txReq.rfParam.power = 31*32;
+    //     txReq.rfParam.mcs = 7;
+    //     txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+    //     txReq.mpduDigest.length = 1024;
+    //     dut0.lowMacTxSrv.request.put(txReq);
+    //     $display("packt2");
+    // endrule
+
+    // //该包将被视为干扰，干扰SYNC状态
+    // rule send3 if (cycleCount == 300);
+    //     let txReq = getEmptyMacEvent;
+    //     txReq.srcMacId = 0;
+    //     txReq.dstMacId = 1;
+    //     txReq.rfParam.power = 10*32;
+    //     txReq.rfParam.mcs = 7;
+    //     txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+    //     txReq.mpduDigest.length = 1024;
+    //     dut0.lowMacTxSrv.request.put(txReq);
+    //     $display("packt3");
+    // endrule
+
+    // //该包将被视为干扰，干扰RX状态
+    // rule send4 if (cycleCount == 5000);
+    //     let txReq = getEmptyMacEvent;
+    //     txReq.srcMacId = 0;
+    //     txReq.dstMacId = 1;
+    //     txReq.rfParam.power = 10*32;
+    //     txReq.rfParam.mcs = 7;
+    //     txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+    //     txReq.mpduDigest.length = 1024;
+    //     dut0.lowMacTxSrv.request.put(txReq);
+    //     $display("packt4");
+    // endrule
+
+    // rule receive;
+    //     let rxReq <- dut1.lowMacRxClt.request.get;
+    // endrule
+
+    // rule simEnd(cycleCount == 100_0_000);//1ms
+    //     $display("Test Pass");
+    //     $finish();
+    // endrule
 
 endmodule

@@ -154,7 +154,7 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
         if (phyRxReqQ.notEmpty) begin
             let phyRxpkt = phyRxReqQ.first;
             phyRxReqQ.deq;
-            phyRxRespQ.enq(GenericResp{});
+            //phyRxRespQ.enq(GenericResp{});
             
             rxValidReg  <= True;
             rxSrcipReg  <= phyRxpkt.srcPhyId;
@@ -316,7 +316,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                         //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync OK, start Phy Rx", id));
                     end 
                     else begin
-                        stateReg    <= PHY_IDLE;
+                        //stateReg    <= PHY_IDLE;
+                        stateReg <= PHY_RX;
                         syncCrcReg  <= False;
                         //$display("PHY_SYNC ERROR, PHY_IDLE");
                         //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync Error", id));
@@ -425,10 +426,23 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     //---------------------------
     // let
     //---------------------------
+    Reg#(Maybe#(File)) fdReg <- mkReg(Invalid);
+
+    // 打开文件（仅在初始化时执行一次）
+    rule openFile if (!isValid(fdReg));
+        let fd <- $fopen("/home/psz/RealEmu/scripts/PhyCore.txt", "a");
+        fdReg <= tagged Valid fd;
+        $display("File opened.");
+    endrule
+
     rule let1;
         let tmpPer <- rom2.response.get;
         perWire <= tmpPer;
         perValidWire <= True;
+        if(stateReg == PHY_RX)begin
+            let fd = validValue(fdReg);
+            $fwrite(fd, "%0d\n", tmpPer);  // 写入数据并换行
+        end
         //$display("PER: %0d ", tmpPer);
         //immLog("mkPhyYansWifi", "let1", $format("Id %5d, PER: %0d", id, tmpPer));
     endrule

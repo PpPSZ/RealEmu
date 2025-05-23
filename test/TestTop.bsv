@@ -57,23 +57,54 @@ module mkTestTop(Empty);
         end
     endrule
 
-    for (Integer i = 0; i < valueof(NODE_NUM)/4; i = i + 2) begin
-        rule send if (cycleCount > fromInteger(i * 100000));
-            let txReq = getDefaultMacEvent;
-            txReq.srcMacId = fromInteger(i);
-            txReq.dstMacId = fromInteger((i + 1) % valueof(NODE_NUM));
-            txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-            txReq.mpduDigest.length = 2048;
-            macNodes[i].highMacTxSrv.request.put(txReq);
-            immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!", i));
-        endrule
-    end
+    rule send if (cycleCount == 100);
+        let txReq = getDefaultMacEvent;
+        txReq.srcMacId = 0;
+        txReq.dstMacId = 1;
+        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+        txReq.mpduDigest.length = 2048;
+        macNodes[txReq.srcMacId].highMacTxSrv.request.put(txReq);
+        immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!",txReq.srcMacId));
+    endrule
+
+    rule send1 if (cycleCount == 2000);
+        let txReq = getDefaultMacEvent;
+        txReq.srcMacId = 1;
+        txReq.dstMacId = 2;
+        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+        txReq.mpduDigest.length = 2048;
+        macNodes[txReq.srcMacId].highMacTxSrv.request.put(txReq);
+        immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!",txReq.srcMacId));
+    endrule
+
+    rule send2 if (cycleCount == 200*10000);
+        let txReq = getDefaultMacEvent;
+        txReq.srcMacId = 1;
+        txReq.dstMacId = 2;
+        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+        txReq.mpduDigest.length = 2048;
+        macNodes[txReq.srcMacId].highMacTxSrv.request.put(txReq);
+        immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!",txReq.srcMacId));
+    endrule
+
+
+    // for (Integer i = 0; i < valueof(NODE_NUM)/4; i = i + 2) begin
+    //     rule send if (cycleCount > fromInteger(i * 100000));
+    //         let txReq = getDefaultMacEvent;
+    //         txReq.srcMacId = fromInteger(i);
+    //         txReq.dstMacId = fromInteger((i + 1) % valueof(NODE_NUM));
+    //         txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+    //         txReq.mpduDigest.length = 2048;
+    //         macNodes[i].highMacTxSrv.request.put(txReq);
+    //         immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!", i));
+    //     endrule
+    // end
 
     // 为每个节点配置接收规则
     for (Integer i = 0; i < valueof(NODE_NUM); i = i + 1) begin
         rule receive;
             let rxReq <- macNodes[i].highMacRxClt.request.get;
-            $display("mac%d Test Pass!", i);
+            $display("mac%d receive from %d!", i,rxReq.srcMacId);
         endrule
     end
 

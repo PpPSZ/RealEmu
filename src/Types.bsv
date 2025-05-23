@@ -20,8 +20,8 @@ import ClientServer::*;
 
 //----------------------------------------------------
 // treedepth = 2 
-typedef 64 NODE_NUM;
-typedef 8  GROUP_SIZE; 
+typedef 16 NODE_NUM;
+typedef 4  GROUP_SIZE; 
 //----------------------------------------------------
 
 typedef 1024 MAX_DEV_NUM;
@@ -285,7 +285,7 @@ typedef Client#(PhyEvent, GenericResp) PhyClt;
 
 // ======================================== Channel Types ====================================
 
-typedef 16 DISTANCE_WIDTH;
+typedef 10 DISTANCE_WIDTH;
 typedef Bit#(DISTANCE_WIDTH) NodeDistance;
 
 typedef Bit#(3) LogDistParaN;

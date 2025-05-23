@@ -4,6 +4,7 @@ import ClientServer::*;
 import Vector::*;
 import FIFO::*;
 import MathUtils::*;
+import BRAM::*;
 
 
 import Types::*;
@@ -13,9 +14,21 @@ import Channel::*;
 module mkTestPoll(Empty);
     //实例化仲裁器
     PollIFC poll <- mkPoll;
+
+    // BRAM2Port#(PhyId, NodeDistance) distanceRam2 <- mkBRAM2Server(
+    //     defaultValue
+    //     // BRAM_Configure {                            
+    //     //     memorySize   : 0,                       
+    //     //     loadFormat   : None,     
+    //     //     latency      : 2,                          
+    //     //     outFIFODepth : 4,                          
+    //     //     allowWriteResponseBypass : False           
+    //     // }
+    // );
     
     //创建节点模型
-    Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelIdeal);
+    Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelLogDistance);
+    //Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelIdeal);
     
     //连接接口
     for(Integer i = 0; i < valueOf(NODE_NUM); i = i + 1) begin
@@ -51,8 +64,10 @@ module mkTestPoll(Empty);
         $display("\nNode 3 sends two packets and Node 4 sends one packet at the same time");
         PhyEvent event0 = getEmptyPhyEvent();
         event0.srcPhyId = 3;
+        event0.rfParam.power = 40*32;
         PhyEvent event1 = getEmptyPhyEvent();
         event1.srcPhyId = 4;
+        event1.rfParam.power = 30*32;
         nodes[3].phyTxSrv.request.put(event0);
         nodes[4].phyTxSrv.request.put(event1);
     endrule
@@ -80,12 +95,12 @@ module mkTestPoll(Empty);
 
     rule rx0;//Node0
         let received <- nodes[0].phyRxClt.request.get;
-        $display("Node0 receive from Node%0d",received.srcPhyId);
+        $display("Node0 receive from Node%0d  power:%d",received.srcPhyId, received.rfParam.power);
     endrule
 
     rule rx1;//Node  7
         let received <- nodes[1].phyRxClt.request.get;
-        $display("Node1 receive from Node%0d",received.srcPhyId);
+        $display("Node1 receive from Node%0d  power:%d",received.srcPhyId, received.rfParam.power);
     endrule
 
     for (Integer i = 2; i < valueof(NODE_NUM); i = i + 1) begin
