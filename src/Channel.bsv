@@ -58,7 +58,7 @@ module mkGainLossModelIdeal(GainLossModel);
     rule phyTx;
         let phyTxReq = phyTxReqQ.first;
         phyTxReqQ.deq;
-        // phyTxRespQ.enq(GenericResp{});
+        phyTxRespQ.enq(GenericResp{});
         txReqQ.enq(phyTxReq);
     endrule
 
@@ -66,8 +66,16 @@ module mkGainLossModelIdeal(GainLossModel);
     rule forward;
         let phyrxReq = rxReqQ.first;
         rxReqQ.deq;
-        // rxRespQ.enq(GenericResp{});
+        rxRespQ.enq(GenericResp{});
         phyRxReqQ.enq(phyrxReq);
+    endrule
+
+    rule handshakeTx;
+        txRespQ.deq;
+    endrule
+
+    rule handshakeRx;
+       phyRxRespQ.deq;
     endrule
 
     // rule handshakeRx;
@@ -162,6 +170,10 @@ module mkGainLossModelLogDistance
 
     rule handshakeRx;
         phyRxRespQ.deq;
+    endrule
+
+    rule handshakeTx;
+        txRespQ.deq;
     endrule
 
     interface phyTxSrv    = toGPServer(phyTxReqQ, phyTxRespQ);

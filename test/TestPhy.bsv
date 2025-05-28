@@ -17,17 +17,12 @@ module mkTestPhy(Empty);
 
     Reg#(UInt#(64)) cycleCount <- mkReg(0);
     Reg#(UInt#(12)) cntCount <- mkReg(0);
+    Reg#(Bool)  tx <- mkReg(False); 
 
     rule updateclock;
-        if(cycleCount == 60*100)
-            cycleCount <= 0;
-        else
             cycleCount <= cycleCount + 1;
     endrule
 
-    rule updatecnt if(cycleCount == 60*100);
-        cntCount <= cntCount + 1;
-    endrule
 
     rule handshake0;
         let resp <- dut0.lowMacTxSrv.response.get;
@@ -37,23 +32,28 @@ module mkTestPhy(Empty);
     //     let resp <- dut0.phyRxSrv.response.get;
     // endrule
 
-    rule send if (cycleCount == 1*100);
+    rule send if (tx==False);
+        let cnt = cntCount;
+        cntCount <= cntCount + 1;
         let txReq = getEmptyMacEvent;
         txReq.srcMacId = 0;
         txReq.dstMacId = 1;
-        txReq.rfParam.power = -160 + unpack(pack(cntCount));
+        txReq.rfParam.power = 30*32;
         txReq.rfParam.mcs = 7;
         txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
         txReq.mpduDigest.length = 1;
         dut0.lowMacTxSrv.request.put(txReq);
-        //$display("packt2%d",cntCount);
+        tx <= True;
+        $display("packet send%d",cnt);
     endrule
 
-    rule receive;
+    rule receive(tx);
         let rxReq <- dut1.lowMacRxClt.request.get;
+        tx <= False;
+        $display("packet receive");
     endrule
 
-    rule simEnd(cntCount == 1120);//1ms
+    rule simEnd(cntCount == 1000);//1ms
         $display("Test Pass");
         $finish();
     endrule

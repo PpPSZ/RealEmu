@@ -27,7 +27,7 @@ module mkPoll(PollIFC);
     ///////////////////////////////////////////////////////////////////////////
     // 接口FIFO
     ///////////////////////////////////////////////////////////////////////////
-    Vector#(NODE_NUM, FIFOF#(PhyEvent))     txReqQs  <- replicateM(mkGFIFOF1(False, True));        // 保护压入，不保护弹出
+    Vector#(NODE_NUM, FIFOF#(PhyEvent))     txReqQs  <- replicateM(mkGFIFOF(False, True));        // 保护压入，不保护弹出
     Vector#(NODE_NUM, FIFOF#(GenericResp))  txRespQs <- replicateM(mkFIFOF);
     Vector#(NODE_NUM, FIFOF#(PhyEvent))     rxReqQs  <- replicateM(mkFIFOF);
     Vector#(NODE_NUM, FIFOF#(GenericResp))  rxRespQs <- replicateM(mkFIFOF);
@@ -50,6 +50,8 @@ module mkPoll(PollIFC);
         if (txReqQs[current_id].notEmpty) begin
             let phyTxReq = txReqQs[current_id].first;
             txReqQs[current_id].deq;
+            txRespQs[current_id].enq(GenericResp{});
+
             grandValidRegs[current_id] <= True;
             txEventRegs[current_id] <= phyTxReq;
             pollValidReg <= False;
@@ -138,6 +140,12 @@ module mkPoll(PollIFC);
             end
         end
     endrule
+
+    for(Integer i = 0; i < valueOf(NODE_NUM); i = i + 1)begin
+        rule handshakeRx;
+            rxRespQs[i].deq;
+        endrule
+    end
 
     ///////////////////////////////////////////////////////////////////////////
     // 接口连接

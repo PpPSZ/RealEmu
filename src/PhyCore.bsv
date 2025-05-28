@@ -125,6 +125,14 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     //---------------------
     //FIFOF
     //---------------------
+    rule handshakeTx;
+        phyTxRespQ.deq;
+    endrule
+
+    rule handshakeRx;
+       lowMacRxRespQ.deq;
+    endrule
+
     rule handleLowMacTxReqQ;
         if (lowMacTxReqQ.notEmpty) begin
             let lowMactxReq = lowMacTxReqQ.first;
@@ -154,7 +162,7 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
         if (phyRxReqQ.notEmpty) begin
             let phyRxpkt = phyRxReqQ.first;
             phyRxReqQ.deq;
-            //phyRxRespQ.enq(GenericResp{});
+            phyRxRespQ.enq(GenericResp{});
             
             rxValidReg  <= True;
             rxSrcipReg  <= phyRxpkt.srcPhyId;
@@ -167,7 +175,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     endrule
 
     rule handleLowMacRxReqQ;
-        if (rxEndReg)begin
+        //crc校验通过才会传
+        if (crcReg)begin
             MacEvent macRxpkt1 = MacEvent{
                 srcMacId  : currentSrcipReg,
                 dstMacId  : currentDstipReg,
@@ -287,6 +296,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                     currentPowerReg <= rxPowerReg;
                     currentLenReg   <= rxLenReg;
                     currentMpduDigest <= rxMpduDigest;
+                    // if(id==0 || id == 1)
+                    //     $display("%0d PHY_SYNC start, power:%d",id,rxPowerReg);
                     //$display("PHY_SYNC start, power:%d",rxPowerReg);
                     //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync Start,power: %0d", id, rxPowerReg));
                 end
@@ -312,7 +323,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                     if (perWire >= unpack(randomValueReg)) begin
                         stateReg    <= PHY_RX;
                         syncCrcReg  <= True;
-                        //$display("PHY_SYNC OK, start PHY_RX");
+                        // if(id==0 || id == 1)
+                        //     $display("%0d PHY_SYNC OK, start PHY_RX", id);
                         //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Sync OK, start Phy Rx", id));
                     end 
                     else begin
@@ -337,11 +349,13 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                     rxEndReg <= True;
                     if(perWire >= unpack(randomValueReg))begin
                         crcReg <= True;
-                        //$display("CRC OK");
+                        // if(id==0 || id == 1)
+                        //     $display("%0d CRC OK",id);
                         //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, CRC OK", id));
                     end else begin
                         crcReg <= False;
-                        //$display("CRC ERROR");
+                        // if(id==0 || id == 1)
+                        //     $display("%d CRC ERROR",id);
                         //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, CRC Error", id));
                     end
                 end
@@ -352,7 +366,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                 if (txBeginReg && psduTimeValidWire) begin
                     txTimerReg <= txTimerReg + psduTimeWire - 1;
                     txBeginReg <= False;
-                    //$display("tx time: %0d (clk)", syncTime + psduTimeWire);
+                    // if(id==0 || id == 1)
+                    //     $display("%d tx time: %0d (clk)", id, syncTime + psduTimeWire);
                     //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, tx time: %0d (clk)", id, syncTime + psduTimeWire));
                 end 
                 else if (txTimerReg > 0) begin
@@ -361,7 +376,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                 else begin
                     stateReg <= PHY_IDLE;
                     txEndReg <= True;
-                    //$display("PHY_TX END");
+                    // if(id==0 || id == 1)
+                    //     $display("%d PHY_TX END", id);
                     //immLog("mkPhyYansWifi", "handlePhyState", $format("Id %5d, Phy Tx End", id));
                 end
             end
@@ -402,7 +418,7 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
         if (currentPowerReg < (lowSNR + powerdBWire)) begin
             sinrAddr = 0;
         end 
-        else if (currentPowerReg > (highSNR + powerdBWire)) begin
+        else if (currentPowerReg >= (highSNR + powerdBWire)) begin
             sinrAddr = 1119;
         end 
         else begin
@@ -416,6 +432,8 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
             addr2 = zeroExtend(sinrAddr);
         end
         rom2.request.put(addr2);
+        // if(id==0 || id == 1)
+        //     $display("SINR : %d",addr2);
 
         //$display("SINR: %0d ", (currentPowerReg - powerdBWire) >> 5);
         //immLog("mkPhyYansWifi", "rom2Request", $format("Id %5d, SINR: %0d", id, (currentPowerReg - powerdBWire) >> 5));
@@ -429,22 +447,22 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     Reg#(Maybe#(File)) fdReg <- mkReg(Invalid);
 
     // 打开文件（仅在初始化时执行一次）
-    rule openFile if (!isValid(fdReg));
-        let fd <- $fopen("/home/psz/RealEmu/scripts/PhyCore.txt", "a");
-        fdReg <= tagged Valid fd;
-        $display("File opened.");
-    endrule
+    // rule openFile if (!isValid(fdReg));
+    //     let fd <- $fopen("/home/psz/RealEmu/scripts/PhyCore.txt", "a");
+    //     fdReg <= tagged Valid fd;
+    //     $display("File opened.");
+    // endrule
 
     rule let1;
         let tmpPer <- rom2.response.get;
         perWire <= tmpPer;
         perValidWire <= True;
-        if(stateReg == PHY_RX)begin
-            let fd = validValue(fdReg);
-            $fwrite(fd, "%0d\n", tmpPer);  // 写入数据并换行
-        end
-        //$display("PER: %0d ", tmpPer);
-        //immLog("mkPhyYansWifi", "let1", $format("Id %5d, PER: %0d", id, tmpPer));
+        // if(stateReg == PHY_RX)begin
+        //     let fd = validValue(fdReg);
+        //     $fwrite(fd, "%0d\n", tmpPer);  // 写入数据并换行
+        // end
+        // $display("PER: %0d ", tmpPer);
+        // immLog("mkPhyYansWifi", "let1", $format("Id %5d, PER: %0d", id, tmpPer));
     endrule
 
 
@@ -457,7 +475,7 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     Reg#(UInt#(32)) cycleCount    <- mkReg(0);
     UInt#(32) sinrSmaple = 5 * clkFreq;   
     BinarySearchIFC searcher <- mkBinarySearch;
-    rule feed_test((syncTimerReg == 100) || (rxTimerReg == 100));
+    rule feed_test((syncTimerReg == 30) || (rxTimerReg == 30));
         searcher.put(noiseSumReg);
         //$display("Binary searching %0d",noiseSumReg);
         //immLog("mkPhyYansWifi", "feed_test", $format("Id %5d, Binary Searching %0d", id, noiseSumReg));

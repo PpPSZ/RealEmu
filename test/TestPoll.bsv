@@ -27,8 +27,8 @@ module mkTestPoll(Empty);
     // );
     
     //创建节点模型
-    Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelLogDistance);
-    //Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelIdeal);
+    //Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelLogDistance);
+    Vector#(NODE_NUM, GainLossModel) nodes <- replicateM(mkGainLossModelIdeal);
     
     //连接接口
     for(Integer i = 0; i < valueOf(NODE_NUM); i = i + 1) begin
@@ -41,6 +41,20 @@ module mkTestPoll(Empty);
     rule updateclock;
         cycleCount <= cycleCount + 1;
     endrule
+
+
+    // for(Integer g = 0; g < valueOf(GROUP_SIZE); g = g + 1)begin
+    //     rule handshake0;
+    //         let resp <- nodes[g].phyRxMetaSrv.response.get;
+    //     endrule
+    // end
+
+    for(Integer g = 0; g < valueOf(GROUP_SIZE); g = g + 1)begin
+        rule handshake1;
+            let resp <- nodes[g].phyTxSrv.response.get;
+        endrule
+    end
+
 
     // 测试案例1：基础仲裁
     rule send1 if (cycleCount == fromInteger(10*valueOf(NODE_NUM)));
@@ -77,6 +91,7 @@ module mkTestPoll(Empty);
     //     event0.srcPhyId = 3;
     //     nodes[3].phyTxSrv.request.put(event0);
     // endrule
+
 
     rule send5 if (cycleCount == fromInteger(50*valueOf(NODE_NUM)));
         $display("\nAll Nodes send a packet at the same time");
