@@ -2,6 +2,8 @@ import GetPut::*;
 import Connectable::*;
 import ClientServer::*;
 import Vector::*;
+import StmtFSM::*;
+import FIFO::*;
 
 import Types::*;
 import MacCore::*;
@@ -11,101 +13,80 @@ import PhyCore::*;
 import Channel::*;
 import Poll::*;
 
-// 最简单的一次发包情况(无NAV)
 module mkTestTop(Empty);
-
     // ==================== 节点实例化 ====================
-    // 生成MAC核心时同样处理
-    Vector#(NODE_NUM, MacCore) macNodes <- genWithM(compose(mkMacPipe, fromInteger));
+        Vector#(NODE_NUM, MacCore) macNodes <- genWithM(compose(mkMacDCF, fromInteger));
+        Vector#(NODE_NUM, PhyCore) phyNodes <- genWithM(compose(mkPhyYansWifi, fromInteger));
+        Vector#(NODE_NUM, GainLossModel) channels <- replicateM(mkGainLossModelIdeal);
+        PollIFC pollController <- mkPoll;
 
-    // 生成8个带UInt参数的PHY核心
-    Vector#(NODE_NUM, PhyCore) phyNodes <- genWithM(compose(mkPhyYansWifi, fromInteger));
-    
-    // 生成信道模型
-    Vector#(NODE_NUM, GainLossModel) channels <- replicateM(mkGainLossModelIdeal);
-    
-    // 创建轮询控制器
-    PollIFC pollController <- mkPoll;
+        Reg#(UInt#(10)) sendingNodes <- mkReg(1);     // 总接收包数
+        // ==================== 控制寄存器 ====================
+        Reg#(UInt#(64)) cycleCount <- mkReg(2);
+        Reg#(UInt#(64)) totalReceived <- mkReg(0);     // 总接收包数
+        Reg#(File) logFile <- mkReg(InvalidFile);     // 日志文件句柄
 
-    // ==================== 节点连接 ====================
-    // 连接MAC层和PHY层
-    for(Integer i=0; i<valueOf(NODE_NUM); i=i+1) begin
-        // MAC层与PHY层连接
-        mkConnection(macNodes[i].lowMacTxClt, phyNodes[i].lowMacTxSrv);  // MAC发送->PHY发送
-        mkConnection(macNodes[i].lowMacRxSrv, phyNodes[i].lowMacRxClt);  // MAC接收<-PHY接收
-        
-        // PHY层与信道连接
-        mkConnection(phyNodes[i].phyTxClt, channels[i].phyTxSrv);            // PHY发送->信道
-        mkConnection(phyNodes[i].phyRxSrv, channels[i].phyRxClt);            // PHY接收<-信道
-        
-        // 轮询控制器连接
-        mkConnection(channels[i].phyTxMetaClt, pollController.phyRxMetaSrv[i]);
-        mkConnection(channels[i].phyRxMetaSrv, pollController.phyTxMetaClt[i]);
-    end
-
-    Reg#(PhyStatus) phyStatusReg <- mkReg(PhyStatus{cca: False, fcsCorrect: True});
-    Reg#(UInt#(32)) cycleCount <- mkReg(0);
-
-    rule updateclock;
-        cycleCount <= cycleCount + 1;
-    endrule
-
-    rule updatePhyStatus;
-        for (Integer i = 0; i < valueof(NODE_NUM); i = i + 1) begin
-            let phyStatus = phyNodes[i].getPhyStatus;
-            macNodes[i].phyStatus.put(phyStatus);
-        end
-    endrule
-
-    rule send if (cycleCount == 100);
-        let txReq = getDefaultMacEvent;
-        txReq.srcMacId = 0;
-        txReq.dstMacId = 1;
-        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 2048;
-        macNodes[txReq.srcMacId].highMacTxSrv.request.put(txReq);
-        immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!",txReq.srcMacId));
-    endrule
-
-    rule send1 if (cycleCount == 2000);
-        let txReq = getDefaultMacEvent;
-        txReq.srcMacId = 1;
-        txReq.dstMacId = 2;
-        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 2048;
-        macNodes[txReq.srcMacId].highMacTxSrv.request.put(txReq);
-        immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!",txReq.srcMacId));
-    endrule
-
-    rule send2 if (cycleCount == 200*10000);
-        let txReq = getDefaultMacEvent;
-        txReq.srcMacId = 1;
-        txReq.dstMacId = 2;
-        txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-        txReq.mpduDigest.length = 2048;
-        macNodes[txReq.srcMacId].highMacTxSrv.request.put(txReq);
-        immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!",txReq.srcMacId));
-    endrule
-
-
-    // for (Integer i = 0; i < valueof(NODE_NUM)/4; i = i + 2) begin
-    //     rule send if (cycleCount > fromInteger(i * 100000));
-    //         let txReq = getDefaultMacEvent;
-    //         txReq.srcMacId = fromInteger(i);
-    //         txReq.dstMacId = fromInteger((i + 1) % valueof(NODE_NUM));
-    //         txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
-    //         txReq.mpduDigest.length = 2048;
-    //         macNodes[i].highMacTxSrv.request.put(txReq);
-    //         immLog("mkTestMultiNode", "send", $format("mac%d put data to txQueue!", i));
-    //     endrule
-    // end
-
-    // 为每个节点配置接收规则
-    for (Integer i = 0; i < valueof(NODE_NUM); i = i + 1) begin
-        rule receive;
-            let rxReq <- macNodes[i].highMacRxClt.request.get;
-            $display("mac%d receive from %d!", i,rxReq.srcMacId);
+        // ==================== 初始化 ====================
+        rule initialize (cycleCount == 10);
+            let fd <- $fopen("/home/psz/RealEmu/scripts/throughout.txt", "w");
+            logFile <= fd;
         endrule
-    end
+
+        rule updateclock;
+            cycleCount <= cycleCount + 1;
+        endrule
+
+        // ==================== 节点连接 ====================
+        for(Integer i=0; i<valueOf(NODE_NUM); i=i+1) begin
+            mkConnection(macNodes[i].lowMacTxClt, phyNodes[i].lowMacTxSrv);
+            mkConnection(macNodes[i].lowMacRxSrv, phyNodes[i].lowMacRxClt);
+            mkConnection(phyNodes[i].phyTxClt, channels[i].phyTxSrv);
+            mkConnection(phyNodes[i].phyRxSrv, channels[i].phyRxClt);
+            mkConnection(pollController.phyTxMetaClt[i], channels[i].phyRxMetaSrv);
+            mkConnection(pollController.phyRxMetaSrv[i], channels[i].phyTxMetaClt);
+        end
+      
+        rule updatePhyStatus;
+            for (Integer i = 0; i < valueof(NODE_NUM); i = i + 1) begin
+                let phyStatus = phyNodes[i].getPhyStatus;
+                macNodes[i].phyStatus.put(phyStatus);
+            end
+        endrule
+
+        for(Integer i=0; i<valueOf(NODE_NUM); i=i+1) begin
+            rule handshake;
+                let resp <- macNodes[i].highMacTxSrv.response.get;
+            endrule
+        end
+
+        for (UInt#(10) i = 1; i < fromInteger(valueOf(NODE_NUM)); i = i + 1)begin
+            rule send if(i<=sendingNodes);
+                let txReq = getEmptyMacEvent;
+                txReq.srcMacId = unpack(pack(i));
+                txReq.dstMacId = 0;
+                txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
+                //txReq.mpduDigest.length = 2048;
+                txReq.rfParam.power = 60*32;
+                txReq.mpduDigest.length = 1024; //使长度变化，用于每次打印出不同的rxReq
+                txReq.rfParam.mcs = 7;
+                macNodes[i].highMacTxSrv.request.put(txReq);
+            endrule
+        end
+
+        rule receive;
+            let rxReq <- macNodes[0].highMacRxClt.request.get;
+            totalReceived <= totalReceived + 1;
+        endrule
+
+        rule logThroughput if((cycleCount % (10000*200) == 0) && logFile != InvalidFile);
+            let throughput = pack(totalReceived);
+            $fwrite(logFile, "%0d\n", throughput);
+            sendingNodes <= sendingNodes + 1; 
+        endrule
+
+        rule simEnd if(sendingNodes == fromInteger(valueOf(NODE_NUM)) - 1);
+            $display("end");
+            $finish();
+        endrule
 
 endmodule
