@@ -164,7 +164,6 @@ module mkNav#(
 endmodule
 
 // ================================== 802.11 DCF MAC ================================
-
 interface CsmaBackOff_IFC;
     method Action    start(Tuple2#(Bool,Bool) option);  // tuple2(isDifs, isNeedStage2RandomBackOff)
     method Action    softRst();             // 软复位，上层强制清空CSMA状态机
@@ -197,7 +196,8 @@ module mkCsmaCaBackOff#(
 
     let              expBackOffGen          <- mkExpBackoffGenerator;
     let              navController          <- mkNav(usGen, id);
-
+    
+    Reg#(TimeUs) suspendTimer <- mkReg(0);
     rule csmaFSM;
 
         case (csmaStateReg)
@@ -223,11 +223,11 @@ module mkCsmaCaBackOff#(
                     csmaStateReg <= CSMA_IDLE;
                 end
                 else if(!(phyStatusWire.cca || navController.isNavWaiting())) begin
-                    if(phyStatusWire.fcsCorrect) begin
-                        waitTimeIFSReg <= isSifsReg ? macCfgReg.sifs : macCfgReg.difs;
+                    if((!phyStatusWire.fcsCorrect) && phyStatusWire.fcsEn) begin
+                        waitTimeIFSReg <= macCfgReg.eifs;
                     end
                     else begin
-                        waitTimeIFSReg <= macCfgReg.eifs;
+                        waitTimeIFSReg <= isSifsReg ? macCfgReg.sifs : macCfgReg.difs;
                     end
                     csmaStateReg <= CSMA_BACKOFF_IFS;
                 end
@@ -298,6 +298,7 @@ module mkCsmaCaBackOff#(
             CSMA_DONE: begin
                 isSendAllowReg   <= True;
                 csmaStateReg     <= CSMA_IDLE;
+                waitTimeReg      <= 0;  // 重置退避计数器
             end
         endcase
     endrule
@@ -557,7 +558,6 @@ module mkMacDCF#(Integer id)(MacCore);
                     txReq.status = False;
                     highMacRxReqQ.enq(txReq);
                 end
-                lowMacRxReqQ.deq();
             end
             dcfStateReg <= state;
             nextTaskReg <= nextTask;

@@ -63,7 +63,12 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     FIFOF#(PhyEvent)    phyRxReqQ         <- mkFIFOF;
     FIFOF#(GenericResp) phyRxRespQ        <- mkFIFOF;
 
-    UInt#(32)  clkFreq      = 100;   //the clock freq (/MHz)
+    `ifdef BSIM
+        UInt#(32)  clkFreq      = 1;   //the clock freq (/MHz)
+    `else
+        UInt#(32)  clkFreq      = 200;   //the clock freq (/MHz)
+    `endif
+
     UInt#(32)  syncTime     = 48 * clkFreq;  
     UInt#(32)  noisePower   = 256; //1mW   
     Int#(12)   lowSNR       = -160;   
@@ -538,6 +543,7 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
     method PhyStatus getPhyStatus;
         return PhyStatus {
             cca         : ccaBusyReg,
+            fcsEn       : rxEndReg,
             fcsCorrect  : crcReg
             };
     endmethod

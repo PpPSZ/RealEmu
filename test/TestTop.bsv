@@ -9,20 +9,20 @@ import Types::*;
 import MacCore::*;
 import CsmaUtils::*;
 import PrimUtils::*;
-import PhyCore::*;
+import PhyCoreSim::*;
 import Channel::*;
-import Poll::*;
+import Arbitration::*;
 
 module mkTestTop(Empty);
     // ==================== 节点实例化 ====================
         Vector#(NODE_NUM, MacCore) macNodes <- genWithM(compose(mkMacDCF, fromInteger));
         Vector#(NODE_NUM, PhyCore) phyNodes <- genWithM(compose(mkPhyYansWifi, fromInteger));
         Vector#(NODE_NUM, GainLossModel) channels <- replicateM(mkGainLossModelIdeal);
-        PollIFC pollController <- mkPoll;
+        ArbiterIFC pollController <- mkArbiter;
 
         Reg#(UInt#(10)) sendingNodes <- mkReg(1);     // 总接收包数
         // ==================== 控制寄存器 ====================
-        Reg#(UInt#(64)) cycleCount <- mkReg(2);
+        Reg#(UInt#(64)) cycleCount <- mkReg(3);
         Reg#(UInt#(64)) totalReceived <- mkReg(0);     // 总接收包数
         Reg#(File) logFile <- mkReg(InvalidFile);     // 日志文件句柄
 
@@ -67,7 +67,7 @@ module mkTestTop(Empty);
                 txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
                 //txReq.mpduDigest.length = 2048;
                 txReq.rfParam.power = 60*32;
-                txReq.mpduDigest.length = 1024; //使长度变化，用于每次打印出不同的rxReq
+                txReq.mpduDigest.length = 1; //使长度变化，用于每次打印出不同的rxReq
                 txReq.rfParam.mcs = 7;
                 macNodes[i].highMacTxSrv.request.put(txReq);
             endrule
@@ -78,13 +78,13 @@ module mkTestTop(Empty);
             totalReceived <= totalReceived + 1;
         endrule
 
-        rule logThroughput if((cycleCount % (10000*200) == 0) && logFile != InvalidFile);
+        rule logThroughput if((cycleCount % (1000*1000) == 0) && logFile != InvalidFile);
             let throughput = pack(totalReceived);
             $fwrite(logFile, "%0d\n", throughput);
             sendingNodes <= sendingNodes + 1; 
         endrule
 
-        rule simEnd if(sendingNodes == fromInteger(valueOf(NODE_NUM)) - 1);
+        rule simEnd if(sendingNodes == fromInteger(valueOf(NODE_NUM)));
             $display("end");
             $finish();
         endrule

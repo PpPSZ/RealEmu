@@ -49,7 +49,7 @@ module mkTestPoll(Empty);
     //     endrule
     // end
 
-    for(Integer g = 0; g < valueOf(GROUP_SIZE); g = g + 1)begin
+    for(Integer g = 0; g < valueOf(NODE_NUM); g = g + 1)begin
         rule handshake1;
             let resp <- nodes[g].phyTxSrv.response.get;
         endrule

@@ -1,3 +1,6 @@
+//----------------------------------------------------------------------------------
+//TreeDepth = 2
+//----------------------------------------------------------------------------------
 import Vector::*;
 import ClientServer::*;
 import GetPut::*;
@@ -5,153 +8,138 @@ import FIFO::*;
 import FIFOF::*;
 import RegFile::*;
 import DReg::*;
-import BRAM::*;
 import MathUtils::*;
 
 import Types::*;
 
-typedef 8 NodeNum;
-typedef TLog#(NodeNum) NodeIdWidth;
+typedef TLog#(NODE_NUM) NodeIdWidth;  // 10 bits
+typedef TDiv#(TLog#(NODE_NUM), TLog#(GROUP_SIZE)) TreeDepth;  // log32(1024)=2
 
-typedef 2  GROUP_SIZE;          // 二叉树结构
-typedef 3  TreeDepth;        // log2(1024)=10
-typedef TDiv#(NodeNum, GROUP_SIZE) GROUP_NUM;
-typedef enum { ArbBegin, Arb1, ArbEnd, ArbProcess } ArbState deriving (Bits, Eq);
+typedef enum {MuxBegin, MuxEnd} MuxState deriving (Bits, Eq);
 
 interface ArbiterIFC;
-    interface Vector#(NodeNum, PhySrv)  phyRxMetaSrv;  // 连接所有节点的phyTxMetaClt
-    interface Vector#(NodeNum, PhyClt)  phyTxMetaClt;  // 连接所有节点的phyRxMetaSrv
+    interface Vector#(NODE_NUM, PhySrv)  phyRxMetaSrv;  // 连接所有节点的phyTxMetaClt
+    interface Vector#(NODE_NUM, PhyClt)  phyTxMetaClt;  // 连接所有节点的phyRxMetaSrv
 endinterface
 
 (* synthesize *)
 module mkArbiter(ArbiterIFC);
-    // 接口FIFO -----------------------------------------------------------
-    Vector#(NodeNum, FIFOF#(PhyEvent))     txReqQs  <- replicateM(mkFIFOF);
-    Vector#(NodeNum, FIFOF#(GenericResp))  txRespQs <- replicateM(mkFIFOF);
-    Vector#(NodeNum, FIFOF#(PhyEvent))     rxReqQs  <- replicateM(mkSizedFIFOF(10));
-    Vector#(NodeNum, FIFOF#(GenericResp))  rxRespQs <- replicateM(mkSizedFIFOF(10));
+    ///////////////////////////////////////////////////////////////////////////
+    // 接口FIFO
+    ///////////////////////////////////////////////////////////////////////////
+    // Vector#(NODE_NUM, FIFOF#(PhyEvent))     txReqQs  <- replicateM(mkGFIFOF(False, True));        // 保护压入，不保护弹出
+    Vector#(NODE_NUM, FIFOF#(PhyEvent))     txReqQs  <- replicateM(mkFIFOF);
+    Vector#(NODE_NUM, FIFOF#(GenericResp))  txRespQs <- replicateM(mkFIFOF);
+    Vector#(NODE_NUM, FIFOF#(PhyEvent))     rxReqQs  <- replicateM(mkFIFOF);
+    Vector#(NODE_NUM, FIFOF#(GenericResp))  rxRespQs <- replicateM(mkFIFOF);
 
-    // 广播流水线寄存器 -----------------------------------------------------
-    Vector#(TreeDepth, Vector#(TDiv#(NodeNum, TExp#(1)), 
-    Reg#(Tuple2#(Bool, PhyEvent)))) broadcastRegs <- replicateM(replicateM(mkDReg(tuple2(False,getEmptyPhyEvent))));
+    ///////////////////////////////////////////////////////////////////////////
+    // 轮询控制逻辑（保持原始结构）
+    ///////////////////////////////////////////////////////////////////////////
+    Reg#(Tuple2#(Bool, PhyEvent)) deMuxReg <- mkDReg(tuple2(False, getEmptyPhyEvent));
+    Vector#(TDiv#(NODE_NUM, GROUP_SIZE), Reg#(Tuple2#(Bool, PhyEvent))) deMuxRegs <- replicateM(mkDReg(tuple2(False, getEmptyPhyEvent)));
 
+    ///////////////////////////////////////////////////////////////////////////
+    // 32叉树聚合逻辑
+    ///////////////////////////////////////////////////////////////////////////
+    Reg#(MuxState) muxState <- mkReg(MuxBegin);
+    Vector#(TDiv#(NODE_NUM, GROUP_SIZE), Reg#(PhyId))    phyIdRegs  <- replicateM(mkDReg(0));
+    Vector#(TDiv#(NODE_NUM, GROUP_SIZE), Reg#(Bool))     validRegs1 <- replicateM(mkDReg(False));
+    Vector#(TDiv#(NODE_NUM, GROUP_SIZE), Reg#(PhyEvent)) eventRegs1 <- replicateM(mkDReg(getEmptyPhyEvent));
 
-    // 仲裁流水线寄存器-----------------------------------------------------
-    Reg#(ArbState) arbState <- mkReg(ArbBegin);
-
-    Vector#(TDiv#(NodeNum, TExp#(1)), Reg#(PhyId)) grantIdRegs1 <- replicateM(mkReg(0));
-    Vector#(TDiv#(NodeNum, TExp#(1)), Reg#(Bool))  validRegs1   <- replicateM(mkReg(False));
-    rule arbitrateLevel0 (arbState == ArbBegin);
-        PhyId groups = fromInteger(valueOf(NodeNum))/2;
-        for (PhyId g = 0; g < groups; g = g + 1) begin
-            PhyId node0 = 2*g;
-            PhyId node1 = 2*g+1;
-            Bool req0 = txReqQs[node0].notEmpty;
-            Bool req1 = txReqQs[node1].notEmpty;
-            grantIdRegs1[g] <= (req0 ? node0 : (req1 ? node1 : 0));
-            validRegs1[g]   <= req0 || req1;
-        end
-        // 切换到下一阶段
-        arbState <= Arb1;
-    endrule
-
-
-    Vector#(TDiv#(NodeNum, TExp#(2)), Reg#(PhyId)) grantIdRegs2 <- replicateM(mkReg(0));
-    Vector#(TDiv#(NodeNum, TExp#(2)), Reg#(Bool))  validRegs2   <- replicateM(mkReg(False));
-    rule arbitrateLevel1 (arbState == Arb1);
-        PhyId groups = fromInteger(valueOf(NodeNum)/(2**2));
-        for (PhyId g = 0; g < groups; g = g + 1) begin
-            PhyId child0 = 2*g;
-            PhyId child1 = 2*g+1;
+    // Level 1 MUX（32节点→1节点）
+    rule muxBegin if (muxState == MuxBegin);
+        Bool valid = False;
+        for (Integer g = 0; g < valueOf(TDiv#(NODE_NUM, GROUP_SIZE)); g = g + 1) begin
+            Bool groupValid = False;
+            Integer groupId = 0;
+            PhyEvent groupEvent = getEmptyPhyEvent;
             
-            Bool valid0 = validRegs1[child0];
-            Bool valid1 = validRegs1[child1];
-            
-            // 优先选择左子树（低ID区域）
-            grantIdRegs2[g] <= (valid0 ? grantIdRegs1[child0] : (valid1 ? grantIdRegs1[child1] : 0));
-            validRegs2[g] <= valid0 || valid1;
+            // 扫描32个子节点
+            for (Integer i = 0; i < valueOf(GROUP_SIZE); i = i + 1) begin
+                let nodeId = g * valueOf(GROUP_SIZE) + i;
+                if (txReqQs[nodeId].notEmpty) begin
+                    groupValid = True;
+                    let phyTxReq = txReqQs[nodeId].first;
+                    groupEvent = phyTxReq;  // 取最后一个有效事件
+                    groupId = nodeId;  // 记录组ID
+                    //$display("%d",nodeId);
+                end
+            end
+            validRegs1[g] <= groupValid;
+            eventRegs1[g] <= groupEvent;
+            phyIdRegs[g] <= fromInteger(groupId); 
+            if(groupValid)begin
+                valid = groupValid;  // 至少有一个组有效
+            end
         end
-        arbState <= ArbEnd;
-    endrule
-
-
-    Vector#(TDiv#(NodeNum, TExp#(3)), Reg#(PhyId)) grantIdRegs3 <- replicateM(mkReg(0));
-    Vector#(TDiv#(NodeNum, TExp#(3)), Reg#(Bool))  validRegs3   <- replicateM(mkReg(False));
-    rule arbitrateLevel2 (arbState == ArbEnd);
-        Bool valid0 = validRegs2[0];
-        Bool valid1 = validRegs2[1];
-        Bool valid  = valid0 || valid1;
-        PhyId grantId = valid0 ? grantIdRegs2[0] : (valid1 ? grantIdRegs2[1] : 0);
-        
-        // 优先选择左子树（低ID区域）
-        grantIdRegs3[0] <= grantId;
-        validRegs3[0] <= valid;
-
         if(valid)begin
-            arbState <= ArbProcess;
-        end else begin
-            arbState <= ArbBegin;
-        end
+            muxState <= MuxEnd;  // 没有有效事件，直接结束
+        end 
     endrule
 
-    // 最终仲裁结果处理 -----------------------------------------------------
-    rule processFinalGrant(arbState == ArbProcess);
-        PhyId grantId  = (grantIdRegs3[0]);
-        Bool  grantValid = validRegs3[0];
-        let phyTxReq = txReqQs[grantId].first;
-        // 启动广播流水线
-        broadcastRegs[0][0] <= tuple2(grantValid, phyTxReq);
-        txReqQs[grantId].deq;
-        txRespQs[grantId].enq(GenericResp{});
-        arbState <= ArbBegin;
-        $display("grant %0d",grantId);
-    endrule
-
-
-    // 树状广播流水线 ------------------------------------------------------
-    rule propagateBroadcast0;  // 非最终级
-        for(Integer lv=0; lv<valueOf(TreeDepth)-1; lv=lv+1) begin
-            Integer groups = (2**lv);
-            for(Integer g=0; g<groups; g=g+1) begin
-                let {valid, phyTxReq} = broadcastRegs[lv][g];
-                
-                // 计算子组范围
-                Integer child0 = 2*g;
-                Integer child1 = 2*g+1;
-                
-                // 向两个子组广播
-                broadcastRegs[lv+1][child0] <=  tuple2(valid, phyTxReq);
-                broadcastRegs[lv+1][child1] <=  tuple2(valid, phyTxReq);
+    // Level 2 MUX（32组→1个全局）
+    rule muxEnd if (muxState == MuxEnd);
+        PhyId selectId = 0;  // 用于记录物理ID
+        Bool finalValid = False;
+        PhyEvent finalEvent = getEmptyPhyEvent;
+        
+        for (Integer g = 0; g < valueOf(TDiv#(NODE_NUM, GROUP_SIZE)); g = g + 1) begin
+            if (validRegs1[g]) begin
+                finalValid = True;
+                finalEvent = eventRegs1[g];  // 取最后一个有效事件
+                selectId = phyIdRegs[g];  // 记录物理ID
             end
         end
+
+        deMuxReg <= tuple2(finalValid, finalEvent);
+        muxState <= MuxBegin;
+        if(finalValid && txReqQs[selectId].notEmpty)begin
+            txReqQs[selectId].deq;
+            txRespQs[selectId].enq(GenericResp{});
+        end
     endrule
 
-    // 最终级广播处理 ------------------------------------------------------
+    ///////////////////////////////////////////////////////////////////////////
+    // 32叉树广播流水线
+    ///////////////////////////////////////////////////////////////////////////
+
+    rule propagateDeMux;
+        let {valid, txEvent} = deMuxReg;
+        // 每个节点广播到32个子节点
+        for (Integer sg = 0; sg < valueOf(GROUP_SIZE); sg = sg + 1) begin
+            deMuxRegs[sg] <= tuple2(valid, txEvent);
+        end
+    endrule
+
+    ///////////////////////////////////////////////////////////////////////////
+    // 最终广播分发
+    ///////////////////////////////////////////////////////////////////////////
     rule finalBroadcast;
-        Integer groups = valueOf(NodeNum)/2;
-        for(Integer g=0; g<groups; g=g+1) begin
-            let {valid, phyTxReq} = broadcastRegs[valueOf(TreeDepth)-1][g];
-            
-            // 计算目标节点
-            Integer node0 = 2*g;
-            Integer node1 = 2*g+1;
-            
-            // 写入接收队列（跳过源节点）
-            if(valid)begin
-                if(phyTxReq.srcPhyId != fromInteger(node0)) 
-                    rxReqQs[node0].enq(phyTxReq);
-                if(phyTxReq.srcPhyId != fromInteger(node1)) 
-                    rxReqQs[node1].enq(phyTxReq);
+        for (Integer g = 0; g < valueOf(GROUP_SIZE); g = g + 1) begin
+            for (Integer gr = 0; gr < valueOf(GROUP_SIZE); gr = gr + 1) begin
+                let index = g*valueOf(GROUP_SIZE) + gr;
+                let {valid, txEvent} = deMuxRegs[g];
+                if (valid && (txEvent.srcPhyId != fromInteger(index))) begin
+                    rxReqQs[index].enq(txEvent);
+                end
             end
         end
     endrule
 
+    for(Integer i = 0; i < valueOf(NODE_NUM); i = i + 1)begin
+        rule handshakeRx;
+            rxRespQs[i].deq;
+        endrule
+    end
 
-    // 接口连接 -----------------------------------------------------------
-    Vector#(NodeNum, PhySrv) rxMetaSrv;
-    Vector#(NodeNum, PhyClt) txMetaClt;
+    ///////////////////////////////////////////////////////////////////////////
+    // 接口连接
+    ///////////////////////////////////////////////////////////////////////////
+    Vector#(NODE_NUM, PhySrv) rxMetaSrv;
+    Vector#(NODE_NUM, PhyClt) txMetaClt;
     
-    for(Integer i=0; i<valueOf(NodeNum); i=i+1) begin
+    for (Integer i = 0; i < valueOf(NODE_NUM); i = i + 1) begin
         rxMetaSrv[i] = toGPServer(txReqQs[i], txRespQs[i]);
         txMetaClt[i] = toGPClient(rxReqQs[i], rxRespQs[i]);
     end

@@ -21,7 +21,7 @@ import ClientServer::*;
 //----------------------------------------------------
 // treedepth = 2 
 typedef 16 NODE_NUM;
-typedef 4  GROUP_SIZE; 
+typedef 4 GROUP_SIZE; 
 //----------------------------------------------------
 
 typedef 1024 MAX_DEV_NUM;
@@ -112,15 +112,15 @@ function MacConfig getDefaultMacCfg();
         phyDelayTime: 25,
         // default
         timeout: 300,
-        retryLimit: 6,
+        retryLimit: 3,
         rtsThreshold: 1400,
         // exp value
-        cwMin: 4,  //15
-        cwMax: 10, //1023
+        cwMin: 3,  //15
+        cwMax: 6, //1023
         // enable
         filterEn: True,
         txopEn: False, // not supported yet
-        navEn: True
+        navEn: False
     };
 endfunction
 
@@ -252,6 +252,7 @@ typedef enum {
 // For Mac
 typedef struct {
     Bool cca;
+    Bool fcsEn;
     Bool fcsCorrect;
 }PhyStatus deriving(Eq, Bits, Bounded, FShow);
 

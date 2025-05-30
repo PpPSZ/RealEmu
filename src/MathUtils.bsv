@@ -47,9 +47,9 @@ endfunction
  * Set the rom = 512 * GainLoss is [0, 49321]
 */
 
-(* synthesize *)
-module mkLogDistanceGainLossTable(MathTable);
-    Rom1port#(UInt#(16), UInt#(16)) rom <- mkSingleRom("bram_gainloss_512.txt");
-    interface request  = rom.request;
-    interface response = rom.response;
-endmodule
+// (* synthesize *)
+// module mkLogDistanceGainLossTable(MathTable);
+//     Rom1port#(UInt#(16), UInt#(16)) rom <- mkSingleRom("bram_gainloss_512.txt");
+//     interface request  = rom.request;
+//     interface response = rom.response;
+// endmodule
