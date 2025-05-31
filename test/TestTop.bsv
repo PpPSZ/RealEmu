@@ -67,7 +67,7 @@ module mkTestTop(Empty);
                 txReq.mpduDigest.frameType = fromInteger(valueOf(FC_TYPE_DATA));
                 //txReq.mpduDigest.length = 2048;
                 txReq.rfParam.power = 60*32;
-                txReq.mpduDigest.length = 1; //使长度变化，用于每次打印出不同的rxReq
+                txReq.mpduDigest.length = 2048; //使长度变化，用于每次打印出不同的rxReq
                 txReq.rfParam.mcs = 7;
                 macNodes[i].highMacTxSrv.request.put(txReq);
             endrule

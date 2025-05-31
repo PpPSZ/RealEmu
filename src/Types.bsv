@@ -20,8 +20,8 @@ import ClientServer::*;
 
 //----------------------------------------------------
 // treedepth = 2 
-typedef 16 NODE_NUM;
-typedef 4 GROUP_SIZE; 
+typedef 64 NODE_NUM;
+typedef 8  GROUP_SIZE; 
 //----------------------------------------------------
 
 typedef 1024 MAX_DEV_NUM;
@@ -112,15 +112,15 @@ function MacConfig getDefaultMacCfg();
         phyDelayTime: 25,
         // default
         timeout: 300,
-        retryLimit: 3,
+        retryLimit: 6,
         rtsThreshold: 1400,
         // exp value
-        cwMin: 3,  //15
-        cwMax: 6, //1023
+        cwMin: 4,  //15
+        cwMax: 10, //1023
         // enable
         filterEn: True,
         txopEn: False, // not supported yet
-        navEn: False
+        navEn: True
     };
 endfunction
 

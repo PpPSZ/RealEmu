@@ -182,7 +182,7 @@ module mkCsmaCaBackOff#(
     Integer id
 )(CsmaBackOff_IFC);
     Reg#(CsmaState)  csmaStateReg           <- mkReg(CSMA_IDLE);
-    Reg#(Bool)       isSendAllowReg         <- mkReg(False);
+    Reg#(Bool)       isSendAllowReg         <- mkDReg(False);
 
     Reg#(TimeUs)     waitTimeIFSReg         <- mkReg(0);
     Reg#(TimeSlot)   waitTimeReg            <- mkReg(0);
@@ -456,6 +456,11 @@ module mkMacDCF#(Integer id)(MacCore);
             dcfStateReg  <= state;
         endrule
 
+        Reg#(UInt#(64)) cycleCount <- mkReg(0);
+        rule updateclock;
+            cycleCount <= cycleCount + 1;
+        endrule
+
         // 等待退避机制结束
         rule dcfWaitBackOff if (dcfStateReg == DCF_WAIT_BACKOFF);
             if (backOffFsm.done) begin
@@ -490,14 +495,16 @@ module mkMacDCF#(Integer id)(MacCore);
                 end
                 NT_SEND_ACK: begin
                     // 回复ACK
-                    let refFrame = lowMacRxReqQ.first;
-                    lowMacRxReqQ.deq;
-                    lowMacRxRespQ.enq(GenericResp{});
-                    let ackFrame = setAckFrame(id, refFrame);
-                    lowMacTxReqQ.enq(ackFrame);
-                    dcfStateReg <= DCF_IDLE;
-                    nextTaskReg <= NT_IDLE;
-                    immLog("mkMacDcf", "dcfFSM", $format("Id %5d, Send ACK", id));
+                    if(lowMacRxReqQ.notEmpty) begin
+                        let refFrame = lowMacRxReqQ.first;
+                        lowMacRxReqQ.deq;
+                        lowMacRxRespQ.enq(GenericResp{});
+                        let ackFrame = setAckFrame(id, refFrame);
+                        lowMacTxReqQ.enq(ackFrame);
+                        dcfStateReg <= DCF_IDLE;
+                        nextTaskReg <= NT_IDLE;
+                    end
+                immLog("mkMacDcf", "dcfFSM", $format("Id %5d, Send ACK", id));
                 end
                 endcase
             end
@@ -556,7 +563,7 @@ module mkMacDCF#(Integer id)(MacCore);
                     let txReq = highMacTxReqQ.first;
                     immLog("mkMacDcf", "dcfFSM", $format("Id %5d, Retransmit Time %d, Drop", id, retransCountReg));
                     txReq.status = False;
-                    highMacRxReqQ.enq(txReq);
+                    // highMacRxReqQ.enq(txReq);
                 end
             end
             dcfStateReg <= state;

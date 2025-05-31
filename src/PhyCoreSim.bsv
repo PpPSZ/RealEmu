@@ -198,12 +198,6 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
         end
     endrule
 
-    Reg#(Maybe#(File)) fdReg <- mkReg(Invalid);
-
-    rule openFile if (!isValid(fdReg));
-        let fd <- $fopen("/home/psz/RealEmu/scripts/conflict.txt", "a");
-        fdReg <= tagged Valid fd;
-    endrule
 
     Reg#(Bool)  nocrc  <- mkReg(False);
 
@@ -271,8 +265,6 @@ module mkPhyYansWifi#(Integer id)(PhyCore);
                     rxEndReg <= True;
                     if(nocrc)begin
                         crcReg <= False;
-                        let fd = validValue(fdReg);
-                        $fwrite(fd, "confict\n");  
                     end else begin
                         crcReg <= True;
                     end
